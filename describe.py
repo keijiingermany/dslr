@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import sys
 from lib.utils import resolve_dataset_path, read_csv_dicts, is_number, safe_float
 from lib.stats import mean, std_sample, compute_min, compute_max, percentile_linear

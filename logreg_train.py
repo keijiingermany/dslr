@@ -1,9 +1,14 @@
-#!/usr/bin/env python3
 import sys
 import json
 from lib.utils import resolve_dataset_path, read_csv_dicts, numeric_feature_names, safe_float, DROP_COLUMNS, HOUSE_COL, die
 from lib.preprocess import preprocess_fit_transform
 from lib.logreg import train_ovr
+
+# Features that are near-perfect linear combinations of another feature.
+# Keeping one from each duplicate pair avoids multicollinearity and
+# improves numerical stability without losing information.
+# (Astronomy vs Defense Against the Dark Arts → r = -1.0000)
+REDUNDANT_FEATURES = {"Defense Against the Dark Arts"}
 
 
 def build_X_y(path: str):
@@ -11,7 +16,10 @@ def build_X_y(path: str):
     if HOUSE_COL not in fieldnames:
         die(f"'{HOUSE_COL}' column not found in train dataset: {path}")
 
-    features = numeric_feature_names(fieldnames, DROP_COLUMNS)
+    features = [
+        f for f in numeric_feature_names(fieldnames, DROP_COLUMNS)
+        if f not in REDUNDANT_FEATURES
+    ]
 
     X = []
     y = []
@@ -37,11 +45,16 @@ def main():
 
     classes = sorted(list(set(y)))
 
-    # start values (good default)
-    lr = 0.05
-    iters = 3000
+    lr = 0.1
+    iters = 5000
 
     thetas = train_ovr(Xb, y, classes, lr=lr, iters=iters)
+
+    # --- training accuracy ---
+    from lib.logreg import predict_ovr_one
+    correct = sum(1 for xi, yi in zip(Xb, y) if predict_ovr_one(xi, thetas) == yi)
+    acc = correct / len(y) * 100
+    print(f"Training accuracy: {correct}/{len(y)} = {acc:.2f}%")
 
     model = {
         "features": features,
