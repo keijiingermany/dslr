@@ -1,21 +1,36 @@
 import sys
 import math
 import matplotlib.pyplot as plt
-from lib.utils import resolve_dataset_path, read_csv_dicts, DROP_COLUMNS, HOUSE_COL, safe_float, die
+
+from lib.utils import (
+    resolve_dataset_path,
+    read_csv_dicts,
+    DROP_COLUMNS,
+    HOUSE_COL,
+    safe_float,
+    die,
+)
 
 
 HOUSES = ["Gryffindor", "Hufflepuff", "Ravenclaw", "Slytherin"]
 
 
 def main():
-    train_path = resolve_dataset_path(sys.argv, prefer="datasets/dataset_train.csv")
+    train_path = resolve_dataset_path(
+        sys.argv, prefer="datasets/dataset_train.csv"
+    )
     fieldnames, rows = read_csv_dicts(train_path)
 
     if HOUSE_COL not in fieldnames:
         die(f"'{HOUSE_COL}' not found in dataset: {train_path}")
 
-    # numeric features (including Arithmancy etc), drop meta columns but keep HOUSE_COL for split
-    features = [c for c in fieldnames if c not in DROP_COLUMNS and c != HOUSE_COL]
+    # numeric features (including Arithmancy etc). Drop meta columns but keep
+    # HOUSE_COL for split
+    features = [
+        c
+        for c in fieldnames
+        if c not in DROP_COLUMNS and c != HOUSE_COL
+    ]
 
     # pick a feature from argv[2] optionally
     feature = features[0]

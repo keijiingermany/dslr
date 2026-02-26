@@ -1,6 +1,15 @@
 import sys
 import json
-from lib.utils import resolve_dataset_path, read_csv_dicts, numeric_feature_names, safe_float, DROP_COLUMNS, HOUSE_COL, die
+
+from lib.utils import (
+    resolve_dataset_path,
+    read_csv_dicts,
+    numeric_feature_names,
+    safe_float,
+    DROP_COLUMNS,
+    HOUSE_COL,
+    die,
+)
 from lib.preprocess import preprocess_fit_transform
 from lib.logreg import train_ovr
 
@@ -38,7 +47,9 @@ def build_X_y(path: str):
 
 
 def main():
-    train_path = resolve_dataset_path(sys.argv, prefer="datasets/dataset_train.csv")
+    train_path = resolve_dataset_path(
+        sys.argv, prefer="datasets/dataset_train.csv"
+    )
     X, y, features = build_X_y(train_path)
 
     Xb, means, stds = preprocess_fit_transform(X)
@@ -52,7 +63,8 @@ def main():
 
     # --- training accuracy ---
     from lib.logreg import predict_ovr_one
-    correct = sum(1 for xi, yi in zip(Xb, y) if predict_ovr_one(xi, thetas) == yi)
+    y_pred = [predict_ovr_one(xi, thetas) for xi in Xb]
+    correct = sum(1 for yi, yp in zip(y, y_pred) if yi == yp)
     acc = correct / len(y) * 100
     print(f"Training accuracy: {correct}/{len(y)} = {acc:.2f}%")
 

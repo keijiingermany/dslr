@@ -12,7 +12,15 @@ You can also specify the pair manually:
 import sys
 import math
 import matplotlib.pyplot as plt
-from lib.utils import resolve_dataset_path, read_csv_dicts, DROP_COLUMNS, HOUSE_COL, safe_float, die
+
+from lib.utils import (
+    resolve_dataset_path,
+    read_csv_dicts,
+    DROP_COLUMNS,
+    HOUSE_COL,
+    safe_float,
+    die,
+)
 
 HOUSE_COLORS = {
     "Gryffindor": "#e63946",
@@ -39,7 +47,10 @@ def pearson_correlation(xs: list, ys: list) -> float:
 
 
 def find_most_similar_pair(features: list, data: dict) -> tuple:
-    """Return (feat_a, feat_b, r) with highest |Pearson r| (excluding perfect 1.0)."""
+    """
+    Return (feat_a, feat_b, r) with highest |Pearson r| (excluding perfect
+    1.0).
+    """
     best = (features[0], features[1], 0.0)
     n = len(features)
     for i in range(n):
@@ -54,7 +65,8 @@ def find_most_similar_pair(features: list, data: dict) -> tuple:
                 continue
             xs_, ys_ = zip(*pairs)
             r = pearson_correlation(list(xs_), list(ys_))
-            # exclude r == ±1.0 (e.g. linear duplicates) to find genuinely "similar"
+            # exclude r == ±1.0 (e.g. linear duplicates) to find
+            # genuinely "similar"
             if abs(r) > abs(best[2]) and abs(r) < 0.9999:
                 best = (fi, fj, r)
     # if everything is < threshold, just take the best we found
@@ -62,10 +74,16 @@ def find_most_similar_pair(features: list, data: dict) -> tuple:
 
 
 def main():
-    train_path = resolve_dataset_path(sys.argv, prefer="datasets/dataset_train.csv")
+    train_path = resolve_dataset_path(
+        sys.argv, prefer="datasets/dataset_train.csv"
+    )
     fieldnames, rows = read_csv_dicts(train_path)
 
-    features = [c for c in fieldnames if c not in DROP_COLUMNS and c != HOUSE_COL]
+    features = [
+        c
+        for c in fieldnames
+        if c not in DROP_COLUMNS and c != HOUSE_COL
+    ]
     if len(features) < 2:
         die("not enough numeric features")
 

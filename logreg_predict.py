@@ -1,6 +1,6 @@
 import sys
 import json
-from lib.utils import resolve_dataset_path, read_csv_dicts, numeric_feature_names, safe_float, DROP_COLUMNS, HOUSE_COL, die
+from lib.utils import resolve_dataset_path, read_csv_dicts, safe_float
 from lib.preprocess import preprocess_transform
 from lib.logreg import predict_ovr_one
 
@@ -17,7 +17,9 @@ def build_X(path: str, features):
 def main():
     # usage:
     # python3 logreg_predict.py datasets/dataset_test.csv weights.json
-    test_path = resolve_dataset_path(sys.argv, prefer="datasets/dataset_test.csv")
+    test_path = resolve_dataset_path(
+        sys.argv, prefer="datasets/dataset_test.csv"
+    )
 
     if len(sys.argv) >= 3 and str(sys.argv[2]).strip() != "":
         weights_path = str(sys.argv[2]).strip()

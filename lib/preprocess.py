@@ -27,10 +27,13 @@ def fill_nan_with_means(X: List[List[float]], means: List[float]) -> None:
                 X[i][j] = means[j]
 
 
-def column_stds_sample(X: List[List[float]], means: List[float]) -> List[float]:
+def column_stds_sample(
+    X: List[List[float]],
+    means: List[float],
+) -> List[float]:
     """
-    sample std over rows for each column; if std=0 -> set to 1 to avoid div-by-zero.
-    Assumes no NaN (fill first).
+    sample std over rows for each column; if std=0 -> set to 1 to avoid
+    div-by-zero. Assumes no NaN (fill first).
     """
     m = len(X)
     n = len(X[0])
@@ -50,7 +53,11 @@ def column_stds_sample(X: List[List[float]], means: List[float]) -> List[float]:
     return stds
 
 
-def standardize_inplace(X: List[List[float]], means: List[float], stds: List[float]) -> None:
+def standardize_inplace(
+    X: List[List[float]],
+    means: List[float],
+    stds: List[float],
+) -> None:
     m = len(X)
     n = len(X[0])
     for i in range(m):
@@ -62,10 +69,12 @@ def add_bias(X: List[List[float]]) -> List[List[float]]:
     return [[1.0] + row[:] for row in X]
 
 
-def preprocess_fit_transform(X: List[List[float]]) -> Tuple[List[List[float]], List[float], List[float]]:
+def preprocess_fit_transform(
+    X: List[List[float]],
+) -> Tuple[List[List[float]], List[float], List[float]]:
     """
-    Fit on X: means/stds, fill NaN, standardize, add bias.
-    Returns (X_processed, means, stds)
+    Fit on X: means/stds, fill NaN, standardize, add bias. Returns
+    (X_processed, means, stds)
     """
     means = column_means(X)
     fill_nan_with_means(X, means)
@@ -75,9 +84,14 @@ def preprocess_fit_transform(X: List[List[float]]) -> Tuple[List[List[float]], L
     return Xb, means, stds
 
 
-def preprocess_transform(X: List[List[float]], means: List[float], stds: List[float]) -> List[List[float]]:
+def preprocess_transform(
+    X: List[List[float]],
+    means: List[float],
+    stds: List[float],
+) -> List[List[float]]:
     """
-    Transform with given means/stds, fill NaN with means, standardize, add bias.
+    Transform with given means/stds, fill NaN with means, standardize, and add
+    bias.
     """
     fill_nan_with_means(X, means)
     standardize_inplace(X, means, stds)

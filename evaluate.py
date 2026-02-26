@@ -19,16 +19,28 @@ The accuracy metric matches scikit-learn's accuracy_score definition:
 
 import sys
 import csv
-import math
 import os
 import json
 import random
 from lib.utils import (
-    resolve_dataset_path, read_csv_dicts, numeric_feature_names,
-    safe_float, DROP_COLUMNS, HOUSE_COL, die
+    resolve_dataset_path,
+    read_csv_dicts,
+    numeric_feature_names,
+    safe_float,
+    DROP_COLUMNS,
+    HOUSE_COL,
+    die,
 )
-from lib.preprocess import preprocess_fit_transform, preprocess_transform
-from lib.logreg import train_ovr, predict_ovr_one
+
+from lib.preprocess import (
+    preprocess_fit_transform,
+    preprocess_transform,
+)
+
+from lib.logreg import (
+    train_ovr,
+    predict_ovr_one,
+)
 
 
 # ──────────────────────────────────────────────
@@ -65,10 +77,17 @@ def confusion_matrix_str(y_true, y_pred, classes):
         if t in idx and p in idx:
             matrix[idx[t]][idx[p]] += 1
     col_w = max(len(c) for c in classes) + 2
-    header = " " * col_w + "".join(f"{c:>{col_w}}" for c in classes) + "  ← predicted"
+    header = (
+        " " * col_w
+        + "".join(f"{c:>{col_w}}" for c in classes)
+        + "  ← predicted"
+    )
     lines = [header]
     for i, c in enumerate(classes):
-        row = f"{c:>{col_w}}" + "".join(f"{matrix[i][j]:>{col_w}}" for j in range(n))
+        row = (
+            f"{c:>{col_w}}"
+            + "".join(f"{matrix[i][j]:>{col_w}}" for j in range(n))
+        )
         lines.append(row)
     return "\n".join(lines)
 
@@ -79,9 +98,13 @@ def per_class_stats(y_true, y_pred, classes):
         fp = sum(1 for t, p in zip(y_true, y_pred) if t != c and p == c)
         fn = sum(1 for t, p in zip(y_true, y_pred) if t == c and p != c)
         prec = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-        rec  = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-        f1   = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0.0
-        print(f"  {c:<30s}  precision={prec:.4f}  recall={rec:.4f}  f1={f1:.4f}")
+        rec = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0.0
+        msg = (
+            f"  {c:<30s}  precision={prec:.4f}"
+            f"  recall={rec:.4f}  f1={f1:.4f}"
+        )
+        print(msg)
 
 
 # ──────────────────────────────────────────────
@@ -102,8 +125,8 @@ def cross_validate(train_path: str, weights_path: str | None):
 
     X_train = [X[i] for i in train_idx]
     y_train = [y[i] for i in train_idx]
-    X_val   = [X[i] for i in val_idx]
-    y_val   = [y[i] for i in val_idx]
+    X_val = [X[i] for i in val_idx]
+    y_val = [y[i] for i in val_idx]
 
     # Train
     X_train_copy = [row[:] for row in X_train]
@@ -141,7 +164,6 @@ def cross_validate(train_path: str, weights_path: str | None):
     if weights_path and os.path.isfile(weights_path):
         with open(weights_path) as f:
             model = json.load(f)
-        saved_features = model["features"]
         saved_means = model["means"]
         saved_stds = model["stds"]
         saved_thetas = model["thetas"]
@@ -183,7 +205,10 @@ def compare_to_ground_truth(gt_path: str, pred_path: str):
             if idx != "":
                 pred_map[idx] = house
 
-    common = sorted(set(gt_map) & set(pred_map), key=lambda x: int(x) if x.isdigit() else x)
+    common = sorted(
+        set(gt_map) & set(pred_map),
+        key=lambda x: int(x) if x.isdigit() else x,
+    )
     if not common:
         die("no matching Index rows between ground truth and predictions")
 
@@ -222,13 +247,18 @@ def main():
     if args and args[0] == "--compare":
         # python3 evaluate.py --compare <gt.csv> <houses.csv>
         if len(args) < 3:
-            die("Usage: python3 evaluate.py --compare <ground_truth.csv> <houses.csv>")
+            die(
+                "Usage: python3 evaluate.py --compare "
+                "<ground_truth.csv> <houses.csv>"
+            )
         compare_to_ground_truth(args[1], args[2])
     else:
         # python3 evaluate.py [dataset_train.csv] [weights.json]
         train_path = args[0] if args else "datasets/dataset_train.csv"
         if not os.path.isfile(train_path):
-            train_path = resolve_dataset_path(sys.argv, prefer="datasets/dataset_train.csv")
+            train_path = resolve_dataset_path(
+                sys.argv, prefer="datasets/dataset_train.csv"
+            )
         weights_path = args[1] if len(args) >= 2 else "weights.json"
         cross_validate(train_path, weights_path)
 

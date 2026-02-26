@@ -9,7 +9,14 @@ Usage:
 import sys
 import math
 import matplotlib.pyplot as plt
-from lib.utils import resolve_dataset_path, read_csv_dicts, DROP_COLUMNS, HOUSE_COL, safe_float
+
+from lib.utils import (
+    resolve_dataset_path,
+    read_csv_dicts,
+    DROP_COLUMNS,
+    HOUSE_COL,
+    safe_float,
+)
 
 HOUSE_COLORS = {
     "Gryffindor": "#e63946",
@@ -22,10 +29,16 @@ HOUSES = ["Gryffindor", "Hufflepuff", "Ravenclaw", "Slytherin"]
 
 
 def main():
-    train_path = resolve_dataset_path(sys.argv, prefer="datasets/dataset_train.csv")
+    train_path = resolve_dataset_path(
+        sys.argv, prefer="datasets/dataset_train.csv"
+    )
     fieldnames, rows = read_csv_dicts(train_path)
 
-    features = [c for c in fieldnames if c not in DROP_COLUMNS and c != HOUSE_COL]
+    features = [
+        c
+        for c in fieldnames
+        if c not in DROP_COLUMNS and c != HOUSE_COL
+    ]
 
     # allow limiting number of features to avoid huge grid (default: all 13)
     k = len(features)
@@ -52,10 +65,16 @@ def main():
                     vals = [
                         data[fi][k_]
                         for k_ in range(nrows)
-                        if houses_list[k_] == h and not math.isnan(data[fi][k_])
+                        if houses_list[k_] == h
+                        and not math.isnan(data[fi][k_])
                     ]
-                    ax.hist(vals, bins=20, alpha=0.5,
-                            color=HOUSE_COLORS.get(h, DEFAULT_COLOR), label=h)
+                    ax.hist(
+                        vals,
+                        bins=20,
+                        alpha=0.5,
+                        color=HOUSE_COLORS.get(h, DEFAULT_COLOR),
+                        label=h,
+                    )
             else:
                 # off-diagonal: per-house scatter
                 for h in HOUSES:
@@ -67,8 +86,14 @@ def main():
                         if not math.isnan(a) and not math.isnan(b):
                             xs_.append(a)
                             ys_.append(b)
-                    ax.scatter(xs_, ys_, s=3, alpha=0.5,
-                               color=HOUSE_COLORS.get(h, DEFAULT_COLOR), label=h)
+                    ax.scatter(
+                        xs_,
+                        ys_,
+                        s=3,
+                        alpha=0.5,
+                        color=HOUSE_COLORS.get(h, DEFAULT_COLOR),
+                        label=h,
+                    )
 
             if i == n - 1:
                 ax.set_xlabel(fj, fontsize=7, rotation=45, ha="right")
@@ -81,14 +106,30 @@ def main():
 
     # single shared legend
     handles = [
-        plt.Line2D([0], [0], marker="o", color="w",
-                   markerfacecolor=HOUSE_COLORS[h], markersize=7, label=h)
+        plt.Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="w",
+            markerfacecolor=HOUSE_COLORS[h],
+            markersize=7,
+            label=h,
+        )
         for h in HOUSES
     ]
-    fig.legend(handles=handles, title="House", loc="upper right",
-               bbox_to_anchor=(1.0, 1.0), fontsize=8)
+    fig.legend(
+        handles=handles,
+        title="House",
+        loc="upper right",
+        bbox_to_anchor=(1.0, 1.0),
+        fontsize=8,
+    )
 
-    plt.suptitle("Pair Plot — Hogwarts features by House", y=1.01, fontsize=12)
+    plt.suptitle(
+        "Pair Plot — Hogwarts features by House",
+        y=1.01,
+        fontsize=12,
+    )
     plt.tight_layout()
     plt.show()
 

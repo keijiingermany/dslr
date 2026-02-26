@@ -12,20 +12,13 @@ def train_binary_gd(
     """
     Batch gradient descent for logistic regression (binary).
     X already includes bias term.
-
-    Speed-ups (pure Python, no external libs):
-    1. jループを1回に統合: dot() + grad更新を1つのjループで処理。
-       元の実装は dot() 内部で j を1回、grad更新で j をもう1回回していた。
-    2. ローカル変数ホイスティング: math.exp をローカルにキャッシュし
-       ホットループ内の LOAD_GLOBAL コストを LOAD_FAST に下げる。
-    3. lr/m を定数として事前計算してループ外に出す。
     """
     m = len(X)
     n = len(X[0])
     theta = [0.0] * n
     lr_m = lr / m
 
-    # ローカルにキャッシュ → ホットループ内が LOAD_FAST になる
+    # Cache math.exp as a local variable so the hot loop uses LOAD_FAST
     _exp = math.exp
 
     for _ in range(iters):
@@ -33,7 +26,7 @@ def train_binary_gd(
         for i in range(m):
             xi = X[i]
 
-            # dot: 明示forループ（sum()ジェネレータより速い）
+            # dot: explicit for-loop (faster than a sum() generator)
             z = 0.0
             for j in range(n):
                 z += theta[j] * xi[j]
@@ -58,7 +51,12 @@ def predict_proba_binary(theta: List[float], x: List[float]) -> float:
 
 
 def _train_one_class(args):
-    """Top-level function required by ProcessPoolExecutor (must be picklable)."""
+    """
+    Top-level function required by ProcessPoolExecutor.
+
+    It must be picklable (module-level) so it can be dispatched to worker
+    processes.
+    """
     X, y_bin, lr, iters = args
     return train_binary_gd(X, y_bin, lr=lr, iters=iters)
 
@@ -72,8 +70,9 @@ def train_ovr(
 ) -> Dict[str, List[float]]:
     """
     One-vs-Rest training.
-    各クラスの二値分類は独立しているので ProcessPoolExecutor で並列実行する。
-    GIL の制約を回避するためスレッドではなくプロセスを使う。
+    Each class' binary classifier is independent, so we parallelize training
+    across classes using ProcessPoolExecutor. We use processes (not threads)
+    to avoid the Global Interpreter Lock and achieve true parallelism.
     """
     from concurrent.futures import ProcessPoolExecutor
 
