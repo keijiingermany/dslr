@@ -1,98 +1,124 @@
 import math
-from typing import Dict, List
+import random
+from concurrent.futures import ProcessPoolExecutor
 from .utils import sigmoid, dot
 
 
-def train_binary_gd(
-    X: List[List[float]],
-    y: List[int],
-    lr: float = 0.1,
-    iters: int = 5000,
-) -> List[float]:
-    """
-    Batch gradient descent for logistic regression (binary).
-    X already includes bias term.
-    """
-    m = len(X)
-    n = len(X[0])
-    theta = [0.0] * n
+# ── Batch Gradient Descent (mandatory) ────────
+
+def train_binary_gd(X, y, lr=0.1, iters=5000):
+    m, n = len(X), len(X[0])
+    th = [0.0] * n
     lr_m = lr / m
-
-    # Cache math.exp as a local variable so the hot loop uses LOAD_FAST
-    _exp = math.exp
-
+    _e = math.exp
     for _ in range(iters):
-        grad = [0.0] * n
+        g = [0.0] * n
         for i in range(m):
             xi = X[i]
-
-            # dot: explicit for-loop (faster than a sum() generator)
-            z = 0.0
-            for j in range(n):
-                z += theta[j] * xi[j]
-            if z >= 0.0:
-                h = 1.0 / (1.0 + _exp(-z))
-            else:
-                e = _exp(z)
-                h = e / (1.0 + e)
-
+            z = sum(th[j] * xi[j] for j in range(n))
+            h = (1.0 / (1.0 + _e(-z))
+                 if z >= 0 else _e(z) / (1.0 + _e(z)))
             err = h - y[i]
             for j in range(n):
-                grad[j] += err * xi[j]
-
+                g[j] += err * xi[j]
         for j in range(n):
-            theta[j] -= lr_m * grad[j]
+            th[j] -= lr_m * g[j]
+    return th
 
-    return theta
+
+# ── Stochastic Gradient Descent (bonus) ──────
+
+def train_binary_sgd(X, y, lr=0.05, epochs=500):
+    m, n = len(X), len(X[0])
+    th = [0.0] * n
+    _e = math.exp
+    rng = random.Random(42)
+    idx = list(range(m))
+    for _ in range(epochs):
+        rng.shuffle(idx)
+        for i in idx:
+            xi = X[i]
+            z = sum(th[j] * xi[j] for j in range(n))
+            h = (1.0 / (1.0 + _e(-z))
+                 if z >= 0 else _e(z) / (1.0 + _e(z)))
+            err = h - y[i]
+            for j in range(n):
+                th[j] -= lr * err * xi[j]
+    return th
 
 
-def predict_proba_binary(theta: List[float], x: List[float]) -> float:
-    return sigmoid(dot(theta, x))
+# ── Mini-batch Gradient Descent (bonus) ──────
+
+def train_binary_minibatch(
+    X, y, lr=0.1, epochs=500, batch_size=32,
+):
+    m, n = len(X), len(X[0])
+    th = [0.0] * n
+    _e = math.exp
+    rng = random.Random(42)
+    idx = list(range(m))
+    for _ in range(epochs):
+        rng.shuffle(idx)
+        for s in range(0, m, batch_size):
+            batch = idx[s:s + batch_size]
+            bs = len(batch)
+            lr_bs = lr / bs
+            g = [0.0] * n
+            for i in batch:
+                xi = X[i]
+                z = sum(th[j] * xi[j] for j in range(n))
+                h = (1.0 / (1.0 + _e(-z))
+                     if z >= 0
+                     else _e(z) / (1.0 + _e(z)))
+                err = h - y[i]
+                for j in range(n):
+                    g[j] += err * xi[j]
+            for j in range(n):
+                th[j] -= lr_bs * g[j]
+    return th
+
+
+# ── Dispatcher / OvR training ────────────────
+
+OPTIMIZERS = {"batch", "sgd", "minibatch"}
 
 
 def _train_one_class(args):
-    """
-    Top-level function required by ProcessPoolExecutor.
-
-    It must be picklable (module-level) so it can be dispatched to worker
-    processes.
-    """
-    X, y_bin, lr, iters = args
-    return train_binary_gd(X, y_bin, lr=lr, iters=iters)
+    """Module-level for ProcessPoolExecutor pickling."""
+    X, y_bin, opt, kw = args
+    if opt == "sgd":
+        return train_binary_sgd(X, y_bin, **kw)
+    if opt == "minibatch":
+        return train_binary_minibatch(X, y_bin, **kw)
+    return train_binary_gd(X, y_bin, **kw)
 
 
 def train_ovr(
-    X: List[List[float]],
-    y_labels: List[str],
-    classes: List[str],
-    lr: float = 0.1,
-    iters: int = 5000,
-) -> Dict[str, List[float]]:
-    """
-    One-vs-Rest training.
-    Each class' binary classifier is independent, so we parallelize training
-    across classes using ProcessPoolExecutor. We use processes (not threads)
-    to avoid the Global Interpreter Lock and achieve true parallelism.
-    """
-    from concurrent.futures import ProcessPoolExecutor
+    X, y, classes, lr=0.1, iters=5000,
+    optimizer="batch", batch_size=32,
+):
+    if optimizer == "sgd":
+        kw = {"lr": lr, "epochs": iters}
+    elif optimizer == "minibatch":
+        kw = {"lr": lr, "epochs": iters,
+              "batch_size": batch_size}
+    else:
+        kw = {"lr": lr, "iters": iters}
 
     tasks = [
-        (X, [1 if yy == c else 0 for yy in y_labels], lr, iters)
+        (X, [1 if yi == c else 0 for yi in y],
+         optimizer, kw)
         for c in classes
     ]
-
-    with ProcessPoolExecutor(max_workers=len(classes)) as pool:
-        results = list(pool.map(_train_one_class, tasks))
-
-    return {c: th for c, th in zip(classes, results)}
+    with ProcessPoolExecutor(len(classes)) as pool:
+        res = list(pool.map(_train_one_class, tasks))
+    return {c: th for c, th in zip(classes, res)}
 
 
-def predict_ovr_one(x: List[float], thetas: Dict[str, List[float]]) -> str:
-    best_c = None
-    best_p = -1.0
+def predict_ovr_one(x, thetas):
+    best_c, best_p = None, -1.0
     for c, th in thetas.items():
-        p = predict_proba_binary(th, x)
+        p = sigmoid(dot(th, x))
         if p > best_p:
-            best_p = p
-            best_c = c
-    return str(best_c)
+            best_p, best_c = p, c
+    return best_c

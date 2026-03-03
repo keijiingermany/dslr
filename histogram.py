@@ -11,47 +11,65 @@ from lib.utils import (
     die,
 )
 
-
 HOUSES = ["Gryffindor", "Hufflepuff", "Ravenclaw", "Slytherin"]
+COLORS = ["#e74c3c", "#f1c40f", "#3498db", "#2ecc71"]
 
 
 def main():
-    train_path = resolve_dataset_path(
-        sys.argv, prefer="datasets/dataset_train.csv"
-    )
-    fieldnames, rows = read_csv_dicts(train_path)
+    path = resolve_dataset_path(sys.argv, prefer="datasets/dataset_train.csv")
+    fieldnames, rows = read_csv_dicts(path)
 
     if HOUSE_COL not in fieldnames:
-        die(f"'{HOUSE_COL}' not found in dataset: {train_path}")
+        die(f"'{HOUSE_COL}' not found in dataset: {path}")
 
-    # numeric features (including Arithmancy etc). Drop meta columns but keep
-    # HOUSE_COL for split
     features = [
-        c
-        for c in fieldnames
+        c for c in fieldnames
         if c not in DROP_COLUMNS and c != HOUSE_COL
     ]
 
-    # pick a feature from argv[2] optionally
-    feature = features[0]
-    if len(sys.argv) >= 3 and sys.argv[2].strip() != "":
-        feature = sys.argv[2].strip()
-        if feature not in features:
-            die(f"feature not found: {feature}")
-
-    per_house = {h: [] for h in HOUSES}
+    # collect data per house per feature
+    data = {f: {h: [] for h in HOUSES} for f in features}
     for r in rows:
         h = r.get(HOUSE_COL, "").strip()
-        if h in per_house:
-            v = safe_float(r.get(feature, ""))
+        if h not in HOUSES:
+            continue
+        for f in features:
+            v = safe_float(r.get(f, ""))
             if not math.isnan(v):
-                per_house[h].append(v)
+                data[f][h].append(v)
 
-    plt.figure()
-    for h in HOUSES:
-        plt.hist(per_house[h], bins=30, alpha=0.5, label=h)
-    plt.title(f"Histogram: {feature}")
-    plt.legend()
+    ncols = 3
+    nrows = math.ceil(len(features) / ncols)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 4, nrows * 2.5))
+    fig.suptitle(
+        "Score distributions by house\n"
+        "→ Which course is homogeneous across all houses?",
+        fontsize=13,
+    )
+
+    ANSWER = "Care of Magical Creatures"
+    for idx, feat in enumerate(features):
+        ax = axes[idx // ncols][idx % ncols]
+        for h, color in zip(HOUSES, COLORS):
+            ax.hist(data[feat][h], bins=20, alpha=0.5, label=h, color=color)
+        if feat == ANSWER:
+            ax.set_title(feat, fontsize=8, fontweight="bold", color="green")
+            for spine in ax.spines.values():
+                spine.set_edgecolor("green")
+                spine.set_linewidth(2.5)
+        else:
+            ax.set_title(feat, fontsize=8)
+        ax.tick_params(labelsize=6)
+
+    # hide unused subplots
+    for idx in range(len(features), nrows * ncols):
+        axes[idx // ncols][idx % ncols].set_visible(False)
+
+    handles = [
+        plt.Rectangle((0, 0), 1, 1, color=c, alpha=0.5) for c in COLORS
+    ]
+    fig.legend(handles, HOUSES, loc="lower right", fontsize=9)
+    plt.tight_layout()
     plt.show()
 
 

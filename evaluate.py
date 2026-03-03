@@ -1,266 +1,209 @@
 """
-evaluate.py
------------
-Self-evaluation script for the DSLR logistic regression classifier.
+evaluate.py — Self-evaluation for the DSLR classifier.
 
-Two modes:
-
-1. Cross-validation on training data (default):
-   python3 evaluate.py [dataset_train.csv] [weights.json]
-   Splits dataset_train.csv (80/20) and reports accuracy.
-
-2. Compare houses.csv against a ground-truth CSV:
-   python3 evaluate.py --compare <ground_truth.csv> <houses.csv>
-   Uses the "Hogwarts House" column of ground_truth as labels.
-
-The accuracy metric matches scikit-learn's accuracy_score definition:
-  accuracy = number of correct predictions / total predictions
+  python3 evaluate.py [dataset] [--optimizer batch|sgd|minibatch]
+  python3 evaluate.py --all     [dataset]   # compare all 3 optimizers
+  python3 evaluate.py --compare <ground_truth.csv> <houses.csv>
 """
-
 import sys
 import csv
 import os
 import json
 import random
 from lib.utils import (
-    resolve_dataset_path,
-    read_csv_dicts,
-    numeric_feature_names,
-    safe_float,
-    DROP_COLUMNS,
-    HOUSE_COL,
-    die,
+    resolve_dataset_path, read_csv_dicts,
+    numeric_feature_names, safe_float,
+    DROP_COLUMNS, HOUSE_COL, die,
 )
-
 from lib.preprocess import (
-    preprocess_fit_transform,
-    preprocess_transform,
+    preprocess_fit_transform, preprocess_transform,
 )
-
 from lib.logreg import (
-    train_ovr,
-    predict_ovr_one,
+    train_ovr, predict_ovr_one, OPTIMIZERS,
 )
-
-
-# ──────────────────────────────────────────────
-# Helpers
-# ──────────────────────────────────────────────
 
 REDUNDANT_FEATURES = {"Defense Against the Dark Arts"}
+DEFAULTS = {
+    "batch":    {"lr": 0.1,  "iters": 5000},
+    "sgd":      {"lr": 0.05, "iters": 500},
+    "minibatch": {"lr": 0.1, "iters": 500, "bs": 32},
+}
 
 
-def load_train_data(path: str):
-    fieldnames, rows = read_csv_dicts(path)
-    if HOUSE_COL not in fieldnames:
+def load_train_data(path):
+    fnames, rows = read_csv_dicts(path)
+    if HOUSE_COL not in fnames:
         die(f"'{HOUSE_COL}' not found in {path}")
-    features = [
-        f for f in numeric_feature_names(fieldnames, DROP_COLUMNS)
+    feats = [
+        f for f in numeric_feature_names(fnames, DROP_COLUMNS)
         if f not in REDUNDANT_FEATURES
     ]
     X, y = [], []
     for r in rows:
-        house = r.get(HOUSE_COL, "").strip()
-        if not house or house.lower() == "nan":
-            continue
-        X.append([safe_float(r.get(f, "")) for f in features])
-        y.append(house)
-    return X, y, features
+        h = r.get(HOUSE_COL, "").strip()
+        if h and h.lower() != "nan":
+            X.append([safe_float(r.get(f, "")) for f in feats])
+            y.append(h)
+    return X, y, feats
 
 
-def confusion_matrix_str(y_true, y_pred, classes):
-    """Returns a formatted confusion matrix string."""
-    n = len(classes)
-    idx = {c: i for i, c in enumerate(classes)}
-    matrix = [[0] * n for _ in range(n)]
-    for t, p in zip(y_true, y_pred):
-        if t in idx and p in idx:
-            matrix[idx[t]][idx[p]] += 1
-    col_w = max(len(c) for c in classes) + 2
-    header = (
-        " " * col_w
-        + "".join(f"{c:>{col_w}}" for c in classes)
-        + "  ← predicted"
-    )
-    lines = [header]
-    for i, c in enumerate(classes):
-        row = (
-            f"{c:>{col_w}}"
-            + "".join(f"{matrix[i][j]:>{col_w}}" for j in range(n))
-        )
-        lines.append(row)
-    return "\n".join(lines)
-
-
-def per_class_stats(y_true, y_pred, classes):
-    for c in classes:
-        tp = sum(1 for t, p in zip(y_true, y_pred) if t == c and p == c)
-        fp = sum(1 for t, p in zip(y_true, y_pred) if t != c and p == c)
-        fn = sum(1 for t, p in zip(y_true, y_pred) if t == c and p != c)
-        prec = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-        rec = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-        f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0.0
-        msg = (
-            f"  {c:<30s}  precision={prec:.4f}"
-            f"  recall={rec:.4f}  f1={f1:.4f}"
-        )
-        print(msg)
-
-
-# ──────────────────────────────────────────────
-# Mode 1: cross-validation
-# ──────────────────────────────────────────────
-
-def cross_validate(train_path: str, weights_path: str | None):
-    X, y, features = load_train_data(train_path)
+def cross_validate(train_path, weights_path, optimizer="batch"):
+    X, y, feats = load_train_data(train_path)
     m = len(X)
 
-    # Stratified 80/20 split
+    # Shuffled 80/20 split (seed for reproducibility)
     random.seed(42)
-    indices = list(range(m))
-    random.shuffle(indices)
+    idx = list(range(m))
+    random.shuffle(idx)
     split = int(0.8 * m)
-    train_idx = indices[:split]
-    val_idx = indices[split:]
+    ti, vi = idx[:split], idx[split:]
 
-    X_train = [X[i] for i in train_idx]
-    y_train = [y[i] for i in train_idx]
-    X_val = [X[i] for i in val_idx]
-    y_val = [y[i] for i in val_idx]
+    Xt = [X[i][:] for i in ti]
+    yt = [y[i] for i in ti]
+    Xv = [X[i][:] for i in vi]
+    yv = [y[i] for i in vi]
 
-    # Train
-    X_train_copy = [row[:] for row in X_train]
-    Xb_train, means, stds = preprocess_fit_transform(X_train_copy)
-    classes = sorted(set(y_train))
-    thetas = train_ovr(Xb_train, y_train, classes, lr=0.1, iters=5000)
+    Xb, means, stds = preprocess_fit_transform(Xt)
+    classes = sorted(set(yt))
 
-    # Validate
-    X_val_copy = [row[:] for row in X_val]
-    Xb_val = preprocess_transform(X_val_copy, means[:], stds)
-    y_pred = [predict_ovr_one(xb, thetas) for xb in Xb_val]
+    d = DEFAULTS[optimizer]
+    lr, iters = d["lr"], d["iters"]
+    bs = d.get("bs", 32)
 
-    correct = sum(1 for t, p in zip(y_val, y_pred) if t == p)
-    acc = correct / len(y_val) * 100
-
-    print("=" * 55)
-    print("  DSLR — Cross-Validation Evaluation (80/20 split)")
-    print("=" * 55)
-    print(f"  Train samples : {len(X_train)}")
-    print(f"  Val   samples : {len(X_val)}")
-    print(f"  Features used : {len(features)}")
-    print(f"  Accuracy      : {correct}/{len(y_val)} = {acc:.2f}%")
-    status = "✓ PASS (≥ 98%)" if acc >= 98.0 else "✗ FAIL (< 98%)"
-    print(f"  Status        : {status}")
-    print()
-    print("Per-class metrics (validation set):")
-    all_classes = sorted(set(y_val) | set(y_pred))
-    per_class_stats(y_val, y_pred, all_classes)
-    print()
-    print("Confusion matrix (rows=actual, cols=predicted):")
-    print(confusion_matrix_str(y_val, y_pred, all_classes))
-    print()
-
-    # Also show full-training accuracy if weights exist
-    if weights_path and os.path.isfile(weights_path):
-        with open(weights_path) as f:
-            model = json.load(f)
-        saved_means = model["means"]
-        saved_stds = model["stds"]
-        saved_thetas = model["thetas"]
-
-        X_full = [row[:] for row in X]
-        Xb_full = preprocess_transform(X_full, saved_means[:], saved_stds)
-        y_full_pred = [predict_ovr_one(xb, saved_thetas) for xb in Xb_full]
-        correct_full = sum(1 for t, p in zip(y, y_full_pred) if t == p)
-        print(f"Full-training accuracy (from {weights_path}): "
-              f"{correct_full}/{len(y)} = {correct_full/len(y)*100:.2f}%")
-
-
-# ──────────────────────────────────────────────
-# Mode 2: compare houses.csv to ground-truth
-# ──────────────────────────────────────────────
-
-def compare_to_ground_truth(gt_path: str, pred_path: str):
-    # Load ground truth
-    if not os.path.isfile(gt_path):
-        die(f"ground truth file not found: {gt_path}")
-    gt_map = {}
-    with open(gt_path, newline="") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            idx = row.get("Index", "").strip()
-            house = row.get(HOUSE_COL, "").strip()
-            if idx != "" and house != "":
-                gt_map[idx] = house
-
-    # Load predictions
-    if not os.path.isfile(pred_path):
-        die(f"prediction file not found: {pred_path}")
-    pred_map = {}
-    with open(pred_path, newline="") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            idx = row.get("Index", "").strip()
-            house = row.get(HOUSE_COL, "").strip()
-            if idx != "":
-                pred_map[idx] = house
-
-    common = sorted(
-        set(gt_map) & set(pred_map),
-        key=lambda x: int(x) if x.isdigit() else x,
+    thetas = train_ovr(
+        Xb, yt, classes,
+        lr=lr, iters=iters,
+        optimizer=optimizer, batch_size=bs,
     )
+
+    Xvb = preprocess_transform(Xv, means[:], stds)
+    yp = [predict_ovr_one(xb, thetas) for xb in Xvb]
+    correct = sum(1 for t, p in zip(yv, yp) if t == p)
+    acc = correct / len(yv) * 100
+
+    print("=" * 55)
+    print("  DSLR — Cross-Validation (80/20 split)")
+    print("=" * 55)
+    print(f"  Optimizer : {optimizer}")
+    print(f"  Train     : {len(Xt)}  Val: {len(Xv)}")
+    print(f"  Features  : {len(feats)}")
+    print(f"  Accuracy  : {correct}/{len(yv)} = {acc:.2f}%")
+    ok = "PASS" if acc >= 98.0 else "FAIL"
+    print(f"  Status    : {ok} (>= 98%)")
+
+    # Full-training accuracy from saved weights
+    if weights_path and os.path.isfile(weights_path):
+        model = json.load(open(weights_path))
+        Xf = [row[:] for row in X]
+        Xfb = preprocess_transform(
+            Xf, model["means"][:], model["stds"],
+        )
+        cf = sum(
+            1 for xi, yi in zip(Xfb, y)
+            if predict_ovr_one(xi, model["thetas"]) == yi
+        )
+        print(f"  Full-train: {cf}/{len(y)}"
+              f" = {cf / len(y) * 100:.2f}%")
+    print()
+    return acc
+
+
+def compare(gt_path, pred_path):
+    if not os.path.isfile(gt_path):
+        die(f"not found: {gt_path}")
+    if not os.path.isfile(pred_path):
+        die(f"not found: {pred_path}")
+
+    def load_map(p):
+        out = {}
+        with open(p, newline="") as f:
+            for r in csv.DictReader(f):
+                idx = r.get("Index", "").strip()
+                h = r.get(HOUSE_COL, "").strip()
+                if idx and h:
+                    out[idx] = h
+        return out
+
+    gt, pr = load_map(gt_path), load_map(pred_path)
+    common = sorted(set(gt) & set(pr),
+                    key=lambda x: int(x) if x.isdigit() else x)
     if not common:
-        die("no matching Index rows between ground truth and predictions")
+        die("no matching Index rows")
 
-    y_true = [gt_map[i] for i in common]
-    y_pred = [pred_map[i] for i in common]
-    correct = sum(1 for t, p in zip(y_true, y_pred) if t == p)
-    acc = correct / len(common) * 100
+    yt = [gt[i] for i in common]
+    yp = [pr[i] for i in common]
+    c = sum(1 for t, p in zip(yt, yp) if t == p)
+    acc = c / len(common) * 100
 
     print("=" * 55)
-    print("  DSLR — Prediction vs Ground Truth Evaluation")
+    print("  DSLR — Prediction vs Ground Truth")
     print("=" * 55)
-    print(f"  Ground truth  : {gt_path}")
-    print(f"  Predictions   : {pred_path}")
-    print(f"  Samples       : {len(common)}")
-    print(f"  Accuracy      : {correct}/{len(common)} = {acc:.2f}%")
-    status = "✓ PASS (≥ 98%)" if acc >= 98.0 else "✗ FAIL (< 98%)"
-    print(f"  Status        : {status}")
-    print()
-
-    all_classes = sorted(set(y_true) | set(y_pred))
-    print("Per-class metrics:")
-    per_class_stats(y_true, y_pred, all_classes)
-    print()
-    print("Confusion matrix (rows=actual, cols=predicted):")
-    print(confusion_matrix_str(y_true, y_pred, all_classes))
+    print(f"  Samples  : {len(common)}")
+    print(f"  Accuracy : {c}/{len(common)} = {acc:.2f}%")
+    ok = "PASS" if acc >= 98.0 else "FAIL"
+    print(f"  Status   : {ok} (>= 98%)")
     print()
 
 
-# ──────────────────────────────────────────────
-# Main
-# ──────────────────────────────────────────────
+def compare_all(train_path):
+    results = []
+    for opt in ["batch", "sgd", "minibatch"]:
+        print(f"[{opt}] training...", flush=True)
+        acc = cross_validate(train_path, None, opt)
+        results.append((opt, acc))
+
+    print("=" * 55)
+    print("  Summary — All Optimizers")
+    print("=" * 55)
+    print(f"  {'Optimizer':<12} {'Val Acc':>8}  {'Status'}")
+    print(f"  {'-'*12}  {'-'*7}  {'-'*6}")
+    for opt, acc in results:
+        ok = "PASS" if acc >= 98.0 else "FAIL"
+        tag = "(mandatory)" if opt == "batch" else "(bonus)"
+        print(f"  {opt:<12} {acc:>7.2f}%  {ok}  {tag}")
+    print()
+
 
 def main():
-    args = sys.argv[1:]
+    raw = sys.argv[1:]
+    if raw and raw[0] == "--compare":
+        if len(raw) < 3:
+            die("Usage: evaluate.py --compare <gt> <pred>")
+        compare(raw[1], raw[2])
+        return
 
-    if args and args[0] == "--compare":
-        # python3 evaluate.py --compare <gt.csv> <houses.csv>
-        if len(args) < 3:
-            die(
-                "Usage: python3 evaluate.py --compare "
-                "<ground_truth.csv> <houses.csv>"
+    if raw and raw[0] == "--all":
+        tp = raw[1] if len(raw) >= 2 else None
+        if not tp or not os.path.isfile(tp):
+            tp = resolve_dataset_path(
+                [sys.argv[0]], prefer="datasets/dataset_train.csv",
             )
-        compare_to_ground_truth(args[1], args[2])
-    else:
-        # python3 evaluate.py [dataset_train.csv] [weights.json]
-        train_path = args[0] if args else "datasets/dataset_train.csv"
-        if not os.path.isfile(train_path):
-            train_path = resolve_dataset_path(
-                sys.argv, prefer="datasets/dataset_train.csv"
-            )
-        weights_path = args[1] if len(args) >= 2 else "weights.json"
-        cross_validate(train_path, weights_path)
+        compare_all(tp)
+        return
+
+    optimizer = "batch"
+    positional = []
+    i = 0
+    while i < len(raw):
+        if raw[i] == "--optimizer":
+            if i + 1 >= len(raw):
+                die("--optimizer requires a value")
+            optimizer = raw[i + 1].lower()
+            if optimizer not in OPTIMIZERS:
+                die(f"Unknown optimizer '{optimizer}'")
+            i += 2
+        else:
+            positional.append(raw[i])
+            i += 1
+
+    tp = positional[0] if positional else None
+    if not tp or not os.path.isfile(tp):
+        tp = resolve_dataset_path(
+            [sys.argv[0]],
+            prefer="datasets/dataset_train.csv",
+        )
+    wp = positional[1] if len(positional) >= 2 else "weights.json"
+    cross_validate(tp, wp, optimizer)
 
 
 if __name__ == "__main__":
